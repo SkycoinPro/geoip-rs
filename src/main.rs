@@ -304,18 +304,17 @@ async fn main() {
 
     println!("Listening on http://{}:{}", host, port);
 
-    let cors = Cors::default()
-        .allow_any_origin()
-        .allowed_methods(vec!["GET"])
-        .allowed_headers(vec![http::header::AUTHORIZATION,
-                              http::header::ACCEPT,
-                              http::header::FORWARDED,
-                              http::header::CONTENT_TYPE,
-                              http::header::HeaderName::from_str("X-Real-IP").unwrap(),
-                              http::header::HeaderName::from_str("X-Forwarded-For").unwrap()])
-        .max_age(3600);
-
     HttpServer::new(move || {
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allowed_methods(vec!["GET"])
+            .allowed_headers(vec![http::header::AUTHORIZATION,
+                                  http::header::ACCEPT,
+                                  http::header::FORWARDED,
+                                  http::header::CONTENT_TYPE,
+                                  http::header::HeaderName::from_str("X-Real-IP").unwrap(),
+                                  http::header::HeaderName::from_str("X-Forwarded-For").unwrap()])
+            .max_age(3600);
         let d: Arc<Reader<memmap2::Mmap>> = db.clone();
         App::new()
             .data(Db { db: d })
