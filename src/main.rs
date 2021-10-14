@@ -237,7 +237,7 @@ fn build_maxmind_url(license: &str) -> Vec<String> {
         .collect::<Vec<String>>()
 }
 
-fn download_database(license: String, urls: Vec<String>) -> anyhow::Result<()> {
+fn download_database(urls: &Vec<String>) -> anyhow::Result<()> {
     for (i, ed) in EDITIONS.iter().enumerate() {
         let d = PathBuf::from(db_file_path()).parent()
             .unwrap_or(&PathBuf::from(std::env::current_dir()?))
@@ -277,8 +277,8 @@ fn download_database(license: String, urls: Vec<String>) -> anyhow::Result<()> {
     return Ok(());
 }
 
-fn update_db(license: String, urls: Vec<String>) -> anyhow::Result<()> {
-    download_database(license, urls)?;
+fn update_db(urls: &Vec<String>) -> anyhow::Result<()> {
+    download_database(urls)?;
 
     return Ok(());
 }
@@ -295,16 +295,16 @@ async fn main() {
     let dbpath = db_file_path();
 
     if !std::path::Path::new(&dbpath).exists() {
-        download_database(license, urls)?;
+        download_database(&urls).unwrap();
     }
 
     let db = Arc::new(Reader::open_mmap(db_file_path()).unwrap());
 
     println!("Schedule update ");
 
-    sched.every(1.days()).run(|| {
+    sched.every(1.days()).run(move || {
         println!("Updating geolite2 database...");
-        let res = update_db();
+        let res = update_db(&urls);
         match res {
             Ok(_) => {}
             Err(e) => println!("updating error {}", e)
