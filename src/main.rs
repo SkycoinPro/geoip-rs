@@ -90,6 +90,11 @@ fn ip_address_to_resolve(
                 .map(|s| s.to_str().unwrap().to_string())
         })
         .or_else(|| {
+            headers
+                .get("X-Forwarded-For")
+                .map(|s| s.to_str().unwrap().to_string())
+        })
+        .or_else(|| {
             remote_addr
                 .map(|ip_port| ip_port.split(':').take(1).last().unwrap())
                 .map(|ip| ip.to_string())
@@ -232,49 +237,49 @@ fn build_maxmind_url(license: &str) -> Vec<String> {
         .collect::<Vec<String>>()
 }
 
-fn update_db() -> anyhow::Result<()> {
-    if let Ok(license) = env::var("GEOIP_LICENSE") {
-        let urls = build_maxmind_url(&license);
+fn download_database(license: String, urls: Vec<String>) -> anyhow::Result<()> {
+    for (i, ed) in EDITIONS.iter().enumerate() {
+        let d = PathBuf::from(db_file_path()).parent()
+            .unwrap_or(&PathBuf::from(std::env::current_dir()?))
+            .to_str().unwrap_or("").to_string();
 
-        for (i, ed) in EDITIONS.iter().enumerate() {
-            let d = PathBuf::from(db_file_path()).parent()
-                .unwrap_or(&PathBuf::from(std::env::current_dir()?))
-                .to_str().unwrap_or("").to_string();
+        let dest = format!("{}/{}.tar.gz", d, &ed.e);
 
-            let dest = format!("{}/{}.tar.gz", d, &ed.e);
+        let resp = ureq::get(urls[i].as_str()).call()?;
+        let dlpath = std::path::Path::new(&dest);
 
-            let resp = ureq::get(urls[i].as_str()).call()?;
-            let dlpath = std::path::Path::new(&dest);
+        let mut file = std::fs::File::create(&dlpath)?;
 
-            let mut file = std::fs::File::create(&dlpath)?;
+        let len = resp.header("Content-Length")
+            .and_then(|s| s.parse::<usize>().ok()).unwrap();
 
-            let len = resp.header("Content-Length")
-                .and_then(|s| s.parse::<usize>().ok()).unwrap();
+        let mut content: Vec<u8> = Vec::with_capacity(len);
+        resp.into_reader()
+            .take(len as u64)
+            .read_to_end(&mut content)?;
 
-            let mut content: Vec<u8> = Vec::with_capacity(len);
-            resp.into_reader()
-                .take(len as u64)
-                .read_to_end(&mut content)?;
+        file.write_all(&content)?;
 
-            file.write_all(&content)?;
+        let mut archive = Archive::new(GzDecoder::new(std::fs::File::open(&dlpath)?));
+        for (_, entry) in archive.entries()?.enumerate() {
+            let mut e = entry?;
+            if e.path()?.ends_with(format!("{}.mmdb", ed.e)) {
+                let prefix = e.path()?.parent().unwrap().to_owned();
+                let path = e.path()?.strip_prefix(&prefix)?.to_owned();
 
-            let mut archive = Archive::new(GzDecoder::new(std::fs::File::open(&dlpath)?));
-            for (_, entry) in archive.entries()?.enumerate() {
-                let mut e = entry?;
-                if e.path()?.ends_with(format!("{}.mmdb", ed.e)) {
-                    let prefix = e.path()?.parent().unwrap().to_owned();
-                    let path = e.path()?.strip_prefix(&prefix)?.to_owned();
+                let dlname = format!("{}/{}", d, path.to_str().unwrap_or(""));
 
-                    let dlname = format!("{}/{}", d, path.to_str().unwrap_or(""));
-
-                    e.unpack(&dlname)?;
-                    std::fs::rename(&dlname, db_file_path().as_str())?;
-                }
+                e.unpack(&dlname)?;
+                std::fs::rename(&dlname, db_file_path().as_str())?;
             }
         }
-
-        return Ok(());
     }
+    return Ok(());
+}
+
+fn update_db(license: String, urls: Vec<String>) -> anyhow::Result<()> {
+    download_database(license, urls)?;
+
     return Ok(());
 }
 
@@ -285,6 +290,13 @@ async fn main() {
 
     let host = env::var("GEOIP_RS_HOST").unwrap_or_else(|_| String::from("127.0.0.1"));
     let port = env::var("GEOIP_RS_PORT").unwrap_or_else(|_| String::from("8080"));
+    let license = env::var("GEOIP_LICENSE").unwrap();
+    let urls = build_maxmind_url(&license);
+    let dbpath = db_file_path();
+
+    if !std::path::Path::new(&dbpath).exists() {
+        download_database(license, urls)?;
+    }
 
     let db = Arc::new(Reader::open_mmap(db_file_path()).unwrap());
 
