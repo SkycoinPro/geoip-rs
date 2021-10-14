@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use actix_cors::Cors;
 use actix_web::http::HeaderMap;
-use actix_web::web;
+use actix_web::{http, web};
 use actix_web::App;
 use actix_web::HttpRequest;
 use actix_web::HttpResponse;
@@ -32,6 +32,7 @@ use actix_web::HttpServer;
 use clokwerk::{Scheduler, TimeUnits};
 use flate2::read::GzDecoder;
 use maxminddb::geoip2::City;
+use maxminddb::geoip2::model::Subdivision;
 use maxminddb::MaxMindDBError;
 use maxminddb::Reader;
 use serde_json;
@@ -103,6 +104,14 @@ struct Db {
     db: Arc<Reader<memmap2::Mmap>>,
 }
 
+fn subdiv_query(div: Option<&Subdivision>, language: &str) -> String {
+    div
+        .and_then(|subdiv| subdiv.names.as_ref())
+        .and_then(|names| names.get(language))
+        .map(|s| s.to_string())
+        .unwrap_or("".to_string())
+}
+
 async fn index(req: HttpRequest, data: web::Data<Db>, web::Query(query): web::Query<QueryParams>) -> HttpResponse {
     let language = get_language(query.lang);
     let ip_address = ip_address_to_resolve(query.ip, req.headers(), req.connection_info().remote_addr());
@@ -127,19 +136,7 @@ async fn index(req: HttpRequest, data: web::Data<Db>, web::Query(query): web::Qu
                 .country
                 .as_ref()
                 .and_then(|country| country.names.as_ref())
-                .and_then(|names| names.get(language.clone().to_owned().as_str()))
-                .map(|s| s.to_string())
-                .unwrap_or("".to_string());
-
-            let region_name = region
-                .and_then(|subdiv| subdiv.names.as_ref())
-                .and_then(|names| names.get(language.clone().to_owned().as_str()))
-                .map(|s| s.to_string())
-                .unwrap_or("".to_string());
-
-            let province_name = province
-                .and_then(|subdiv| subdiv.names.as_ref())
-                .and_then(|names| names.get(language.clone().to_owned().as_str()))
+                .and_then(|names| names.get(language.as_str()))
                 .map(|s| s.to_string())
                 .unwrap_or("".to_string());
 
@@ -147,9 +144,12 @@ async fn index(req: HttpRequest, data: web::Data<Db>, web::Query(query): web::Qu
                 .city
                 .as_ref()
                 .and_then(|city| city.names.as_ref())
-                .and_then(|names| names.get(language.clone().to_owned().as_str()))
+                .and_then(|names| names.get(language.as_str()))
                 .map(|s| s.to_string())
                 .unwrap_or("".to_string());
+
+            let region_name = subdiv_query(region, &language);
+            let province_name = subdiv_query(province, &language);
 
             let res = ResolvedIPResponse {
                 ip_address: &ip_address,
@@ -272,9 +272,9 @@ fn update_db() -> anyhow::Result<()> {
             }
         }
 
-        return Ok({});
+        Ok(())
     }
-    return Ok({});
+    Ok(())
 }
 
 #[actix_rt::main]
@@ -302,6 +302,12 @@ async fn main() {
 
 
     println!("Listening on http://{}:{}", host, port);
+
+    let cors = Cors::default()
+        .allow_any_origin()
+        .allowed_methods(vec!["GET"])
+        .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT, http::header::FORWARDED, http::header::CONTENT_TYPE, "X-Real-IP", "X-Forwarded-For"])
+        .max_age(3600);
 
     HttpServer::new(move || {
         let d: Arc<Reader<memmap2::Mmap>> = db.clone();
