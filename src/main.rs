@@ -20,6 +20,7 @@ use std::io::{Read, Write};
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::path::{PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use actix_cors::Cors;
@@ -272,9 +273,9 @@ fn update_db() -> anyhow::Result<()> {
             }
         }
 
-        Ok(())
+        return Ok(());
     }
-    Ok(())
+    return Ok(());
 }
 
 #[actix_rt::main]
@@ -306,14 +307,19 @@ async fn main() {
     let cors = Cors::default()
         .allow_any_origin()
         .allowed_methods(vec!["GET"])
-        .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT, http::header::FORWARDED, http::header::CONTENT_TYPE, "X-Real-IP", "X-Forwarded-For"])
+        .allowed_headers(vec![http::header::AUTHORIZATION,
+                              http::header::ACCEPT,
+                              http::header::FORWARDED,
+                              http::header::CONTENT_TYPE,
+                              http::header::HeaderName::from_str("X-Real-IP").unwrap(),
+                              http::header::HeaderName::from_str("X-Forwarded-For").unwrap()])
         .max_age(3600);
 
     HttpServer::new(move || {
         let d: Arc<Reader<memmap2::Mmap>> = db.clone();
         App::new()
             .data(Db { db: d })
-            .wrap(Cors::permissive())
+            .wrap(cors)
             .route("/", web::route().to(index))
     })
         .bind(format!("{}:{}", host, port))
