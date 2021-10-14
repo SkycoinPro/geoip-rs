@@ -257,8 +257,6 @@ fn update_db() -> anyhow::Result<()> {
 
             file.write_all(&content)?;
 
-            let mut dlname: String = "".to_string();
-
             let mut archive = Archive::new(GzDecoder::new(std::fs::File::open(&dlpath)?));
             for (_, entry) in archive.entries()?.enumerate() {
                 let mut e = entry?;
@@ -266,7 +264,7 @@ fn update_db() -> anyhow::Result<()> {
                     let prefix = e.path()?.parent().unwrap().to_owned();
                     let path = e.path()?.strip_prefix(&prefix)?.to_owned();
 
-                    dlname = format!("{}/{}", d, path.to_str().unwrap_or(""));
+                    let dlname = format!("{}/{}", d, path.to_str().unwrap_or(""));
 
                     e.unpack(&dlname)?;
                     std::fs::rename(&dlname, db_file_path().as_str())?;
