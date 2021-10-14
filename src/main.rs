@@ -269,7 +269,7 @@ fn update_db() -> anyhow::Result<()> {
                     dlname = format!("{}/{}", d, path.to_str().unwrap_or(""));
 
                     e.unpack(&dlname)?;
-                    std::fs::rename(&dlname, db_file_path().as_str());
+                    std::fs::rename(&dlname, db_file_path().as_str())?;
                 }
             }
         }
@@ -285,13 +285,13 @@ async fn main() {
     let mut sched = Scheduler::new();
 
     let host = env::var("GEOIP_RS_HOST").unwrap_or_else(|_| String::from("127.0.0.1"));
-    let port = env::var("GEOIP_RS_PORT").unwrap_or_else(|_| String::from("3000"));
+    let port = env::var("GEOIP_RS_PORT").unwrap_or_else(|_| String::from("8080"));
 
     let db = Arc::new(Reader::open_mmap(db_file_path()).unwrap());
 
     println!("Schedule update ");
 
-    sched.every(1.minutes()).run(|| {
+    sched.every(1.days()).run(|| {
         println!("Updating geolite2 database...");
         let res = update_db();
         match res {
