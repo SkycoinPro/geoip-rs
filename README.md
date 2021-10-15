@@ -72,10 +72,12 @@ or [read the tutorial](https://doc.rust-lang.org/cargo/getting-started/installat
 You can specify the dataset location on the command line
 ```bash
 geoip-rs /path/to/GeoLite2-City.mmdb
+# or you can omit it and it will download current db given your license.
 ```
 or via environment variable
 ```bash
 export GEOIP_RS_DB_PATH=/path/to/GeoLite2-City.mmdb
+export GEOIP_LICENSE=xxxxxxxxxx
 geoip-rs
 ```
 or via `.env`
@@ -90,6 +92,8 @@ You can also customize the host and port geoip.rs will listen to
 export GEOIP_RS_DB_PATH=/path/to/GeoLite2-City.mmdb
 export GEOIP_RS_HOST=192.168.0.1
 export GEOIP_RS_PORT=8080
+export GEOIP_LICENSE=xxxxxxxxxx
+
 geoip-rs
 ```
 or you can copy `.env.template` to `.env` and customize its contents
