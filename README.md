@@ -1,7 +1,6 @@
-# geoip-rs
+# geoip-rs with self update
 
-[![Latest version](https://img.shields.io/crates/v/geoip-rs.svg)](https://crates.io/crates/geoip-rs)
-[![Build Status](https://travis-ci.org/ffissore/geoip-rs.svg?branch=master)](https://travis-ci.org/ffissore/geoip-rs)
+Fork of geoip-rs with self-update mechanism, and updated dependencies.
 
 geoip-rs is a geoip service: it provides geographical information about the calling or the specified IP address. It supports both IPV4 and IPV6.
 
