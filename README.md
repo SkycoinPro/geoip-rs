@@ -98,6 +98,14 @@ geoip-rs
 ```
 or you can copy `.env.template` to `.env` and customize its contents
 
+### Kubernetes support
+
+You can deploy geoip service on k8s as well.
+
+You can find the k8s manifest under ```k8s``` folder.
+
+Just make sure you have ```X-forwarded-for``` enabled on your ingress-nginx
+
 ### License
 
 This project is licensed under the Apache License, Version 2.0
