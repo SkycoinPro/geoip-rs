@@ -19,54 +19,65 @@ use std::env;
 use std::io::{Read, Write};
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use actix_cors::Cors;
 use actix_web::http::HeaderMap;
-use actix_web::{http, web};
 use actix_web::App;
 use actix_web::HttpRequest;
 use actix_web::HttpResponse;
 use actix_web::HttpServer;
+use actix_web::{http, web};
 use clokwerk::{Scheduler, TimeUnits};
 use flate2::read::GzDecoder;
-use maxminddb::geoip2::City;
 use maxminddb::geoip2::model::Subdivision;
+use maxminddb::geoip2::City;
 use maxminddb::MaxMindDBError;
 use maxminddb::Reader;
 use serde_json;
 use tar::Archive;
+use core::option::Option;
 
 struct Edition<T: AsRef<str>> {
     e: T,
 }
 
-const EDITIONS: [Edition<&'static str>; 1] = [
-    Edition { e: "GeoLite2-City" },
-];
+const EDITIONS: [Edition<&'static str>; 1] = [Edition { e: "GeoLite2-City" }];
 
 #[derive(Serialize)]
-struct NonResolvedIPResponse<'a> {
-    pub ip_address: &'a str,
+struct NonResolvedIPResponse {
+    pub ip_address: String,
 }
 
 #[derive(Serialize)]
-struct ResolvedIPResponse<'a> {
-    pub ip_address: &'a str,
-    pub latitude: &'a f64,
-    pub longitude: &'a f64,
-    pub postal_code: &'a str,
-    pub continent_code: &'a str,
-    pub country_code: &'a str,
-    pub country_name: &'a str,
-    pub region_code: &'a str,
-    pub region_name: &'a str,
-    pub province_code: &'a str,
-    pub province_name: &'a str,
-    pub city_name: &'a str,
-    pub timezone: &'a str,
+struct ResolvedIPResponse {
+    pub ip_address: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub postal_code: String,
+    pub continent_code: String,
+    pub country_code: String,
+    pub country_name: String,
+    pub region_code: String,
+    pub region_name: String,
+    pub province_code: String,
+    pub province_name: String,
+    pub city_name: String,
+    pub timezone: String,
+}
+
+#[derive(Serialize)]
+struct BatchResponse {
+    pub result: Vec<LonLatResult>,
+}
+
+#[derive(Serialize)]
+struct LonLatResult {
+    pub ip_address: String,
+    pub longitude: String,
+    pub latitude: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -74,6 +85,53 @@ struct QueryParams {
     ip: Option<String>,
     lang: Option<String>,
     callback: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct BatchRequest {
+    ips: Vec<String>,
+}
+
+/// extract `BatchRequest` using serde
+async fn batch_handler(
+    req: HttpRequest,
+    data: web::Data<Db>,
+    r: web::Json<BatchRequest>,
+) -> HttpResponse {
+    if r.ips.is_empty() {
+        return HttpResponse::BadRequest()
+            .content_type("application/text")
+            .body("empty request");
+    }
+
+    if r.ips.len() > 300 {
+        return HttpResponse::BadRequest()
+            .content_type("application/text")
+            .body("too many ips to request");
+    }
+
+    let mut result = Vec::new();
+
+    for op_ip in &r.ips {
+        let addr = ip_address_to_resolve(Some(op_ip.to_string()), req.headers(), None);
+        let lookup: Result<City, MaxMindDBError> = data.db.lookup(addr.parse().unwrap());
+        let geoip = construct_result(addr.clone(), "en".to_string(), lookup);
+        if let Ok(geo) = geoip {
+            result.push(LonLatResult {
+                ip_address: geo.ip_address.to_string(),
+                longitude: geo.longitude.to_string(),
+                latitude: geo.latitude.to_string(),
+            })
+        };
+    }
+
+    let resp = BatchResponse {
+        result,
+    };
+
+    HttpResponse::Ok()
+        .content_type("application/json; charset=utf-8")
+        .body(serde_json::to_string(&resp).unwrap())
 }
 
 fn ip_address_to_resolve(
@@ -111,19 +169,13 @@ struct Db {
 }
 
 fn subdiv_query(div: Option<&Subdivision>, language: &str) -> String {
-    div
-        .and_then(|subdiv| subdiv.names.as_ref())
+    div.and_then(|subdiv| subdiv.names.as_ref())
         .and_then(|names| names.get(language))
         .map(|s| s.to_string())
         .unwrap_or("".to_string())
 }
 
-async fn index(req: HttpRequest, data: web::Data<Db>, web::Query(query): web::Query<QueryParams>) -> HttpResponse {
-    let language = get_language(query.lang);
-    let ip_address = ip_address_to_resolve(query.ip, req.headers(), req.connection_info().remote_addr());
-
-    let lookup: Result<City, MaxMindDBError> = data.db.lookup(ip_address.parse().unwrap());
-
+fn construct_result(ip_address: String, language: String, lookup: Result<City, MaxMindDBError>) -> Result<ResolvedIPResponse, MaxMindDBError> {
     let geoip = match lookup {
         Ok(geoip) => {
             let region = geoip
@@ -158,55 +210,69 @@ async fn index(req: HttpRequest, data: web::Data<Db>, web::Query(query): web::Qu
             let province_name = subdiv_query(province, &language);
 
             let res = ResolvedIPResponse {
-                ip_address: &ip_address,
+                ip_address,
                 latitude: geoip
                     .location
                     .as_ref()
-                    .and_then(|loc| loc.latitude.as_ref())
-                    .unwrap_or(&0.0),
+                    .and_then(|loc| loc.latitude)
+                    .unwrap_or(0.0),
                 longitude: geoip
                     .location
                     .as_ref()
-                    .and_then(|loc| loc.longitude.as_ref())
-                    .unwrap_or(&0.0),
+                    .and_then(|loc| loc.longitude)
+                    .unwrap_or(0.0),
                 postal_code: geoip
                     .postal
                     .as_ref()
                     .and_then(|postal| postal.code)
-                    .unwrap_or(""),
+                    .unwrap_or("").to_string(),
                 continent_code: geoip
                     .continent
                     .as_ref()
                     .and_then(|cont| cont.code)
-                    .unwrap_or(""),
+                    .unwrap_or("").to_string(),
                 country_code: geoip
                     .country
                     .as_ref()
                     .and_then(|country| country.iso_code)
-                    .unwrap_or(""),
-                country_name: &country_name,
-                region_code: region
-                    .and_then(|subdiv| subdiv.iso_code)
-                    .unwrap_or(""),
-                region_name: &region_name,
-                province_code: province
-                    .and_then(|subdiv| subdiv.iso_code)
-                    .unwrap_or(""),
-                province_name: &province_name,
-                city_name: &city_name,
+                    .unwrap_or("").to_string(),
+                country_name,
+                region_code: region.and_then(|subdiv| subdiv.iso_code).unwrap_or("").to_string(),
+                region_name,
+                province_code: province.and_then(|subdiv| subdiv.iso_code).unwrap_or("").to_string(),
+                province_name,
+                city_name,
                 timezone: geoip
                     .location
                     .as_ref()
                     .and_then(|loc| loc.time_zone)
-                    .unwrap_or(""),
+                    .unwrap_or("").to_string(),
             };
-            serde_json::to_string(&res)
+            Ok(res)
+            // serde_json::to_string(&res)
         }
+        Err(e) => Err(e),
+    };
+    return geoip;
+}
+
+async fn index(
+    req: HttpRequest,
+    data: web::Data<Db>,
+    web::Query(query): web::Query<QueryParams>,
+) -> HttpResponse {
+    let language = get_language(query.lang);
+    let ip_address =
+        ip_address_to_resolve(query.ip, req.headers(), req.connection_info().remote_addr());
+
+    let lookup: Result<City, MaxMindDBError> = data.db.lookup(ip_address.parse().unwrap());
+
+    let geoip = match construct_result(ip_address.clone(), language, lookup) {
+        Ok(r) => serde_json::to_string(&r),
         Err(_) => serde_json::to_string(&NonResolvedIPResponse {
-            ip_address: &ip_address,
-        }),
-    }
-        .unwrap();
+            ip_address,
+        })
+    }.unwrap();
 
     match query.callback {
         Some(callback) => HttpResponse::Ok()
@@ -239,9 +305,12 @@ fn build_maxmind_url(license: &str) -> Vec<String> {
 
 fn download_database(urls: &Vec<String>) -> anyhow::Result<()> {
     for (i, ed) in EDITIONS.iter().enumerate() {
-        let d = PathBuf::from(db_file_path()).parent()
+        let d = PathBuf::from(db_file_path())
+            .parent()
             .unwrap_or(&PathBuf::from(std::env::current_dir()?))
-            .to_str().unwrap_or("").to_string();
+            .to_str()
+            .unwrap_or("")
+            .to_string();
 
         let dest = format!("{}/{}.tar.gz", d, &ed.e);
 
@@ -250,8 +319,10 @@ fn download_database(urls: &Vec<String>) -> anyhow::Result<()> {
 
         let mut file = std::fs::File::create(&dlpath)?;
 
-        let len = resp.header("Content-Length")
-            .and_then(|s| s.parse::<usize>().ok()).unwrap();
+        let len = resp
+            .header("Content-Length")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap();
 
         let mut content: Vec<u8> = Vec::with_capacity(len);
         resp.into_reader()
@@ -307,12 +378,11 @@ async fn main() {
         let res = update_db(&urls);
         match res {
             Ok(_) => {}
-            Err(e) => println!("updating error {}", e)
+            Err(e) => println!("updating error {}", e),
         }
     });
 
     let _thread_handle = sched.watch_thread(std::time::Duration::from_millis(100));
-
 
     println!("Listening on http://{}:{}", host, port);
 
@@ -320,18 +390,21 @@ async fn main() {
         let cors = Cors::default()
             .allow_any_origin()
             .allowed_methods(vec!["GET"])
-            .allowed_headers(vec![http::header::AUTHORIZATION,
-                                  http::header::ACCEPT,
-                                  http::header::FORWARDED,
-                                  http::header::CONTENT_TYPE,
-                                  http::header::HeaderName::from_str("X-Real-IP").unwrap(),
-                                  http::header::HeaderName::from_str("X-Forwarded-For").unwrap()])
+            .allowed_headers(vec![
+                http::header::AUTHORIZATION,
+                http::header::ACCEPT,
+                http::header::FORWARDED,
+                http::header::CONTENT_TYPE,
+                http::header::HeaderName::from_str("X-Real-IP").unwrap(),
+                http::header::HeaderName::from_str("X-Forwarded-For").unwrap(),
+            ])
             .max_age(3600);
         let d: Arc<Reader<memmap2::Mmap>> = db.clone();
         App::new()
             .data(Db { db: d })
             .wrap(cors)
             .route("/", web::route().to(index))
+            .route("/batch", web::route().to(batch_handler))
     })
         .bind(format!("{}:{}", host, port))
         .unwrap_or_else(|_| panic!("Can not bind to {}:{}", host, port))
