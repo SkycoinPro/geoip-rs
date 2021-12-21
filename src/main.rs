@@ -97,6 +97,7 @@ async fn batch_handler(
     req: HttpRequest,
     data: web::Data<Db>,
     r: web::Json<BatchRequest>,
+    web::Query(query): web::Query<QueryParams>,
 ) -> HttpResponse {
     if r.ips.is_empty() {
         return HttpResponse::BadRequest()
@@ -109,13 +110,13 @@ async fn batch_handler(
             .content_type("application/text")
             .body("too many ips to request");
     }
-
+    let language = get_language(query.lang);
     let mut result = Vec::new();
 
     for op_ip in &r.ips {
         let addr = ip_address_to_resolve(Some(op_ip.to_string()), req.headers(), None);
         let lookup: Result<City, MaxMindDBError> = data.db.lookup(addr.parse().unwrap());
-        let geoip = construct_result(addr.clone(), "en".to_string(), lookup);
+        let geoip = construct_result(addr.clone(), language.clone(), lookup);
         if let Ok(geo) = geoip {
             result.push(LonLatResult {
                 ip_address: geo.ip_address.to_string(),
