@@ -132,6 +132,7 @@ async fn batch_handler(
 
     HttpResponse::Ok()
         .content_type("application/json; charset=utf-8")
+        .header("Cache-Control", "no-cache, no-store, must-revalidate", "Pragma", "no-cache", "Expires", "0")
         .body(serde_json::to_string(&resp).unwrap())
 }
 
