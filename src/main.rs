@@ -20,7 +20,7 @@ use std::io::{Read, Write};
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::path::PathBuf;
-use std::str::FromStr;
+// use std::str::FromStr;
 use std::sync::Arc;
 
 use actix_cors::Cors;
@@ -29,7 +29,7 @@ use actix_web::App;
 use actix_web::HttpRequest;
 use actix_web::HttpResponse;
 use actix_web::HttpServer;
-use actix_web::{http, web};
+use actix_web::{web};
 use clokwerk::{Scheduler, TimeUnits};
 use flate2::read::GzDecoder;
 use maxminddb::geoip2::model::Subdivision;
@@ -132,9 +132,6 @@ async fn batch_handler(
 
     HttpResponse::Ok()
         .content_type("application/json; charset=utf-8")
-        .header("Cache-Control", "no-cache, no-store, must-revalidate")
-        .header("Pragma", "no-cache")
-        .header("Expires","0")
         .body(serde_json::to_string(&resp).unwrap())
 }
 
@@ -265,6 +262,7 @@ async fn index(
     data: web::Data<Db>,
     web::Query(query): web::Query<QueryParams>,
 ) -> HttpResponse {
+    println!("Triggering index");
     let language = get_language(query.lang);
     let ip_address =
         ip_address_to_resolve(query.ip, req.headers(), req.connection_info().remote_addr());
@@ -284,6 +282,9 @@ async fn index(
             .body(format!(";{}({});", callback, geoip)),
         None => HttpResponse::Ok()
             .content_type("application/json; charset=utf-8")
+            .header("Pragma", "no-cache")
+            .header("Cache-Control", "no-cache, no-store, must-revalidate")
+            .header("Expires", "0")
             .body(geoip),
     }
 }

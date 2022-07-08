@@ -10,8 +10,8 @@ COPY --from=builder /app/target/release/geoip-rs /usr/local/bin/geoip-rs
 RUN mkdir -p /usr/local/share/geoip-rs
 COPY ./data/GeoLite2-City.mmdb /usr/local/share/geoip-rs/city.mmdb
 ENV GEOIP_RS_DB_PATH=/usr/local/share/geoip-rs/city.mmdb
-ENV GEOIP_RS_HOST=localhost
-ENV GEOIP_RS_PORT=8080
-ENV GEOIP_LICENSE=hQH1HtrtWH3qBbIo
+ENV GEOIP_RS_HOST=${GEOIP_RS_HOST}
+ENV GEOIP_RS_PORT=${GEOIP_RS_PORT}
+ENV GEOIP_LICENSE=${GEOIP_LICENSE}
 EXPOSE 8080
 ENTRYPOINT ["./usr/local/bin/geoip-rs", "/usr/local/share/geoip-rs/city.mmdb"]
